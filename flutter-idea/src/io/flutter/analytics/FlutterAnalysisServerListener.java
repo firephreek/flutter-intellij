@@ -13,6 +13,7 @@ import com.intellij.codeInsight.lookup.LookupListener;
 import com.intellij.codeInsight.lookup.LookupManager;
 import com.intellij.codeInsight.lookup.impl.LookupImpl;
 import com.intellij.openapi.Disposable;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.FileEditorManagerEvent;
@@ -24,40 +25,20 @@ import com.intellij.psi.PsiFile;
 import com.jetbrains.lang.dart.analyzer.DartAnalysisServerService;
 import com.jetbrains.lang.dart.fixes.DartQuickFix;
 import com.jetbrains.lang.dart.fixes.DartQuickFixListener;
-import java.beans.PropertyChangeEvent;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 import io.flutter.FlutterInitializer;
 import io.flutter.utils.FileUtils;
-import org.dartlang.analysis.server.protocol.AnalysisError;
-import org.dartlang.analysis.server.protocol.AnalysisErrorType;
-import org.dartlang.analysis.server.protocol.AnalysisStatus;
-import org.dartlang.analysis.server.protocol.AvailableSuggestionSet;
-import org.dartlang.analysis.server.protocol.ClosingLabel;
-import org.dartlang.analysis.server.protocol.CompletionSuggestion;
-import org.dartlang.analysis.server.protocol.HighlightRegion;
-import org.dartlang.analysis.server.protocol.ImplementedClass;
-import org.dartlang.analysis.server.protocol.ImplementedMember;
-import org.dartlang.analysis.server.protocol.IncludedSuggestionRelevanceTag;
-import org.dartlang.analysis.server.protocol.IncludedSuggestionSet;
-import org.dartlang.analysis.server.protocol.NavigationRegion;
-import org.dartlang.analysis.server.protocol.Occurrences;
-import org.dartlang.analysis.server.protocol.Outline;
-import org.dartlang.analysis.server.protocol.OverrideMember;
-import org.dartlang.analysis.server.protocol.PubStatus;
-import org.dartlang.analysis.server.protocol.RequestError;
-import org.dartlang.analysis.server.protocol.SearchResult;
+import org.dartlang.analysis.server.protocol.*;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-public final class FlutterAnalysisServerListener extends AnalysisServerListenerAdapter
-  implements Disposable {
+import java.beans.PropertyChangeEvent;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@SuppressWarnings("LocalCanBeFinal")
+public final class FlutterAnalysisServerListener extends AnalysisServerListenerAdapter implements Disposable {
   // statics
   static final String COMPUTED_ERROR = "computedError";
   static final String INITIAL_COMPUTE_ERRORS_TIME = "initialComputeErrorsTime";
@@ -82,16 +63,15 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   static final String IS_DART_ONLY_ACTIVE_LANG = "isDartOnlyActiveLang";
   static final String IS_DART_WORKSPACE_TYPE = "isDartWorkspaceType";
   static final String IS_DERIVE_TARGETS_ENABLED = "isDeriveTargetsEnabled";
-  static final String[] ERROR_TYPES =
-    new String[] {
-      AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR,
-      AnalysisErrorType.COMPILE_TIME_ERROR,
-      AnalysisErrorType.HINT,
-      AnalysisErrorType.LINT,
-      AnalysisErrorType.STATIC_TYPE_WARNING,
-      AnalysisErrorType.STATIC_WARNING,
-      AnalysisErrorType.SYNTACTIC_ERROR
-    };
+  static final String[] ERROR_TYPES = new String[]{
+    AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR,
+    AnalysisErrorType.COMPILE_TIME_ERROR,
+    AnalysisErrorType.HINT,
+    AnalysisErrorType.LINT,
+    AnalysisErrorType.STATIC_TYPE_WARNING,
+    AnalysisErrorType.STATIC_WARNING,
+    AnalysisErrorType.SYNTACTIC_ERROR
+  };
 
   static final String LOG_ENTRY_KIND = "kind";
   static final String LOG_ENTRY_TIME = "time";
@@ -100,77 +80,69 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
 
   // variables to throttle certain, high frequency events
   private static final int COMPUTED_ERROR_SAMPLE_RATE = 100;
-  private static final Duration INTERVAL_TO_REPORT_MEMORY_USAGE = Duration.ofHours(1);
-  final RequestListener requestListener;
-  final ResponseListener responseListener;
-  final DartQuickFixListener quickFixListener;
+  @SuppressWarnings("ConstantConditions")
+  @NotNull private static final Duration INTERVAL_TO_REPORT_MEMORY_USAGE = Duration.ofHours(1);
+  @NotNull final RequestListener requestListener;
+  @NotNull final ResponseListener responseListener;
+  @NotNull final DartQuickFixListener quickFixListener;
   // instance members
-  private final Project project;
-  //private final LoggingService loggingService;
-  private final Map<String, List<AnalysisError>> pathToErrors;
-  private final Map<String, Instant> pathToErrorTimestamps;
-  private final Map<String, Instant> pathToHighlightTimestamps;
-  private final Map<String, Instant> pathToOutlineTimestamps;
-  private final Map<String, RequestDetails> requestToDetails;
-  FileEditorManagerListener fileEditorManagerListener;
+  @NotNull private final Project project;
+  @NotNull private final Map<String, List<AnalysisError>> pathToErrors;
+  @NotNull private final Map<String, Instant> pathToErrorTimestamps;
+  @NotNull private final Map<String, Instant> pathToHighlightTimestamps;
+  @NotNull private final Map<String, Instant> pathToOutlineTimestamps;
+  @NotNull private final Map<String, RequestDetails> requestToDetails;
+  @NotNull private final FileEditorManagerListener fileEditorManagerListener;
   LookupSelectionHandler lookupSelectionHandler;
   private int computedErrorCounter = 0;
-  private Instant nextMemoryUsageLoggedInstant = Instant.EPOCH;
+  @NotNull private Instant nextMemoryUsageLoggedInstant = Instant.EPOCH;
 
-  FlutterAnalysisServerListener(@NotNull Project project, DartAnalysisServerService analysisServer) {
+  FlutterAnalysisServerListener(@NotNull Project project) {
     this.project = project;
     this.pathToErrors = new HashMap<>();
     this.pathToErrorTimestamps = new HashMap<>();
     this.pathToHighlightTimestamps = new HashMap<>();
     this.pathToOutlineTimestamps = new HashMap<>();
     this.requestToDetails = new HashMap<>();
-    try {
+    //noinspection ConstantConditions
+    if (!ApplicationManager.getApplication().isUnitTestMode()) {
       LookupManager.getInstance(project).addPropertyChangeListener(this::onPropertyChange);
-    } catch (NullPointerException e) {
-      // It's okay if we fail to register the listener during testing.
     }
 
-    this.fileEditorManagerListener =
-      new FileEditorManagerListener() {
-        @Override
-        public void fileOpened(
-          @NotNull final FileEditorManager source, @NotNull final VirtualFile file) {
-          // Record the time that this file was opened so that we'll be able to log
-          // relative timings for errors, highlights, outlines, etc.
-          String filePath = file.getPath();
-          Instant nowInstant = Instant.now();
-          pathToErrorTimestamps.put(filePath, nowInstant);
-          pathToHighlightTimestamps.put(filePath, nowInstant);
-          pathToOutlineTimestamps.put(filePath, nowInstant);
-        }
+    this.fileEditorManagerListener = new FileEditorManagerListener() {
+      @Override
+      public void fileOpened(@NotNull final FileEditorManager source, @NotNull final VirtualFile file) {
+        // Record the time that this file was opened so that we'll be able to log
+        // relative timings for errors, highlights, outlines, etc.
+        String filePath = file.getPath();
+        Instant nowInstant = Instant.now();
+        pathToErrorTimestamps.put(filePath, nowInstant);
+        pathToHighlightTimestamps.put(filePath, nowInstant);
+        pathToOutlineTimestamps.put(filePath, nowInstant);
+      }
 
-        @Override
-        public void selectionChanged(@NotNull FileEditorManagerEvent event) {}
+      @Override
+      public void selectionChanged(@NotNull FileEditorManagerEvent event) {
+      }
 
-        @Override
-        public void fileClosed(@NotNull final FileEditorManager source, @NotNull final VirtualFile file) {
-        }
-      };
-    project
-      .getMessageBus()
-      .connect()
-      .subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, fileEditorManagerListener);
+      @Override
+      public void fileClosed(@NotNull final FileEditorManager source, @NotNull final VirtualFile file) {
+      }
+    };
+    project.getMessageBus().connect().subscribe(FileEditorManagerListener.FILE_EDITOR_MANAGER, fileEditorManagerListener);
     this.quickFixListener = new QuickFixListener();
-    analysisServer.addQuickFixListener(this.quickFixListener);
     this.requestListener = new FlutterRequestListener();
     this.responseListener = new FlutterResponseListener();
+    DartAnalysisServerService analysisServer = DartAnalysisServerService.getInstance(project);
+    analysisServer.setServerLogSubscription(true);
+    analysisServer.addQuickFixListener(this.quickFixListener);
     analysisServer.addRequestListener(this.requestListener);
     analysisServer.addResponseListener(this.responseListener);
-    maybeSetServerLogSubscription(analysisServer);
   }
 
   @NotNull
   public static FlutterAnalysisServerListener getInstance(@NotNull final Project project) {
-    return project.getService(FlutterAnalysisServerListener.class);
-  }
-
-  private static void maybeSetServerLogSubscription(DartAnalysisServerService analysisServer) {
-    analysisServer.setServerLogSubscription(true);
+    return Objects.requireNonNull(project.getService(FlutterAnalysisServerListener.class));
   }
 
   @NotNull
@@ -178,7 +150,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     if (jsonObject != null && StringUtil.isNotEmpty(memberName)) {
       JsonElement jsonElement = jsonObject.get(memberName);
       if (jsonElement != null) {
-        return jsonElement.getAsString();
+        return Objects.requireNonNull(jsonElement.getAsString());
       }
     }
     return "";
@@ -192,35 +164,40 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   }
 
   @Override
-  public void computedAnalyzedFiles(List<String> list) {}
+  public void computedAnalyzedFiles(List<String> list) {
+  }
 
   @Override
-  public void computedAvailableSuggestions(@NotNull List<AvailableSuggestionSet> list, @NotNull int[] ints) {}
+  public void computedAvailableSuggestions(@NotNull List<AvailableSuggestionSet> list, int[] ints) {
+  }
 
   @Override
-  public void computedCompletion(
-    String completionId,
-    int replacementOffset,
-    int replacementLength,
-    List<CompletionSuggestion> completionSuggestions,
-    List<IncludedSuggestionSet> includedSuggestionSets,
-    List<String> includedElementKinds,
-    List<IncludedSuggestionRelevanceTag> includedSuggestionRelevanceTags,
-    boolean isLast,
-    String libraryFilePathSD) {}
+  public void computedCompletion(String completionId,
+                                 int replacementOffset,
+                                 int replacementLength,
+                                 List<CompletionSuggestion> completionSuggestions,
+                                 List<IncludedSuggestionSet> includedSuggestionSets,
+                                 List<String> includedElementKinds,
+                                 List<IncludedSuggestionRelevanceTag> includedSuggestionRelevanceTags,
+                                 boolean isLast,
+                                 String libraryFilePathSD) {
+  }
 
   @Override
   public void computedErrors(String path, List<AnalysisError> list) {
+    assert list != null;
     list.forEach(this::logAnalysisError);
     pathToErrors.put(path, list);
+    assert path != null;
     maybeLogInitialAnalysisTime(INITIAL_COMPUTE_ERRORS_TIME, path, pathToErrorTimestamps);
   }
 
+  @NotNull
   public List<AnalysisError> getAnalysisErrorsForFile(String path) {
     if (path == null) {
       return AnalysisError.EMPTY_LIST;
     }
-    return pathToErrors.getOrDefault(path, AnalysisError.EMPTY_LIST);
+    return Objects.requireNonNull(pathToErrors.getOrDefault(path, AnalysisError.EMPTY_LIST));
   }
 
   /**
@@ -237,8 +214,12 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     for (String keyPath : pathToErrors.keySet()) {
       // Get the list of AnalysisErrors and remove any todos from the list, these are ignored in the
       // Dart Problems view, and can be ignored for any dashboard work.
+      assert keyPath != null;
       List<AnalysisError> errors = getAnalysisErrorsForFile(keyPath);
-      errors.removeIf(e -> e.getType().equals(AnalysisErrorType.TODO));
+      errors.removeIf(e -> {
+        assert e != null;
+        return Objects.equals(e.getType(), AnalysisErrorType.TODO);
+      });
       if (errors.isEmpty()) {
         continue;
       }
@@ -247,8 +228,10 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       // errorCountsArray[*]
       for (int i = 0; i < ERROR_TYPES.length; i++) {
         final int j = i;
-        errorCountsArray[j] +=
-          errors.stream().filter(e -> e.getType().equals(ERROR_TYPES[j])).count();
+        errorCountsArray[j] += errors.stream().filter(e -> {
+          assert e != null;
+          return Objects.equals(e.getType(), ERROR_TYPES[j]);
+        }).count();
       }
     }
 
@@ -262,40 +245,51 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
 
   @Override
   public void computedHighlights(String path, List<HighlightRegion> list) {
+    assert path != null;
     maybeLogInitialAnalysisTime(INITIAL_HIGHLIGHTS_TIME, path, pathToHighlightTimestamps);
   }
 
   @Override
-  public void computedImplemented(String s, List<ImplementedClass> list, List<ImplementedMember> list1) {}
+  public void computedImplemented(String s, List<ImplementedClass> list, List<ImplementedMember> list1) {
+  }
 
   @Override
-  public void computedLaunchData(String s, String s1, String[] strings) {}
+  public void computedLaunchData(String s, String s1, String[] strings) {
+  }
 
   @Override
-  public void computedNavigation(String s, List<NavigationRegion> list) {}
+  public void computedNavigation(String s, List<NavigationRegion> list) {
+  }
 
   @Override
-  public void computedOccurrences(String s, List<Occurrences> list) {}
+  public void computedOccurrences(String s, List<Occurrences> list) {
+  }
 
   @Override
   public void computedOutline(String path, Outline outline) {
+    assert path != null;
     maybeLogInitialAnalysisTime(INITIAL_OUTLINE_TIME, path, pathToOutlineTimestamps);
   }
 
   @Override
-  public void computedOverrides(String s, List<OverrideMember> list) {}
+  public void computedOverrides(String s, List<OverrideMember> list) {
+  }
 
   @Override
-  public void computedClosingLabels(String s, List<ClosingLabel> list) {}
+  public void computedClosingLabels(String s, List<ClosingLabel> list) {
+  }
 
   @Override
-  public void computedSearchResults(String s, List<SearchResult> list, boolean b) {}
+  public void computedSearchResults(String s, List<SearchResult> list, boolean b) {
+  }
 
   @Override
-  public void flushedResults(List<String> list) {}
+  public void flushedResults(List<String> list) {
+  }
 
   @Override
   public void requestError(RequestError requestError) {
+    assert requestError != null;
     String code = requestError.getCode();
     if (code == null) {
       code = requestError.getMessage();
@@ -307,8 +301,9 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
 
   /**
    * Build an exception parameter containing type, code, and stack. Limit it to 150 chars.
-   * @param type "R" for request error, "S" for server error
-   * @param code error code or message
+   *
+   * @param type  "R" for request error, "S" for server error
+   * @param code  error code or message
    * @param stack stack trace
    * @return exception description, value of "exd" parameter in analytics
    */
@@ -333,7 +328,8 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   }
 
   @Override
-  public void serverConnected(String s) {}
+  public void serverConnected(String s) {
+  }
 
   @Override
   public void serverError(boolean isFatal, String message, String stackTraceString) {
@@ -342,37 +338,39 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   }
 
   @Override
-  public void serverIncompatibleVersion(String s) {}
+  public void serverIncompatibleVersion(String s) {
+  }
 
   @Override
   public void serverStatus(AnalysisStatus analysisStatus, PubStatus pubStatus) {
+    assert analysisStatus != null;
     if (!analysisStatus.isAnalyzing()) {
       @NotNull HashMap<String, Integer> errorCounts = getTotalAnalysisErrorCounts();
       int errorCount = 0;
       errorCount += extractCount(errorCounts, AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR);
       errorCount += extractCount(errorCounts, AnalysisErrorType.COMPILE_TIME_ERROR);
       errorCount += extractCount(errorCounts, AnalysisErrorType.SYNTACTIC_ERROR);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "ERRORS",  errorCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "ERRORS", errorCount);
       int warningCount = 0;
       warningCount += extractCount(errorCounts, AnalysisErrorType.STATIC_TYPE_WARNING);
       warningCount += extractCount(errorCounts, AnalysisErrorType.STATIC_WARNING);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "WARNINGS",  warningCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "WARNINGS", warningCount);
       int hintCount = extractCount(errorCounts, AnalysisErrorType.HINT);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "HINTS",  hintCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "HINTS", hintCount);
       int lintCount = extractCount(errorCounts, AnalysisErrorType.LINT);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "LINTS",  lintCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "LINTS", lintCount);
     }
   }
 
   private static int extractCount(@NotNull Map<String, Integer> errorCounts, String name) {
     //noinspection Java8MapApi,ConstantConditions
-    return errorCounts.containsKey(AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR)
-      ? errorCounts.get(AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR)
-      : 0;
+    return errorCounts.containsKey(AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR) ? errorCounts.get(
+      AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR) : 0;
   }
 
   @Override
-  public void computedExistingImports(String file, Map<String, Map<String, Set<String>>> existingImports) {}
+  public void computedExistingImports(String file, Map<String, Map<String, Set<String>>> existingImports) {
+  }
 
   private static void logCompletion(@NotNull String selection, int prefixLength, @NotNull String eventType) {
     FlutterInitializer.getAnalytics().sendEventMetric(eventType, selection, prefixLength);
@@ -388,7 +386,9 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
 
   private void logAnalysisError(@Nullable AnalysisError error) {
     if (error != null && (computedErrorCounter++ % COMPUTED_ERROR_SAMPLE_RATE) == 0) {
-      FlutterInitializer.getAnalytics().sendEvent(COMPUTED_ERROR,  error.getCode(), "", Long.toString(Instant.now().toEpochMilli()));
+      FlutterInitializer.getAnalytics().sendEvent(
+        COMPUTED_ERROR,
+        Objects.requireNonNull(error.getCode()), "", Long.toString(Objects.requireNonNull(Instant.now()).toEpochMilli()));
     }
   }
 
@@ -397,7 +397,8 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       return;
     }
 
-    logFileAnalysisTime(eventType, path, Duration.between(pathToStartTime.get(path), Instant.now()).toMillis());
+    logFileAnalysisTime(eventType, path, Objects.requireNonNull(
+      Duration.between(Objects.requireNonNull(pathToStartTime.get(path)), Instant.now())).toMillis());
     pathToStartTime.remove(path);
   }
 
@@ -416,7 +417,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     }
 
     this.lookupSelectionHandler = new LookupSelectionHandler();
-    LookupImpl lookup = (LookupImpl) newValue;
+    LookupImpl lookup = (LookupImpl)newValue;
     lookup.addLookupListener(lookupSelectionHandler);
   }
 
@@ -434,7 +435,8 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
         return;
       }
       String selection = event.getItem().getLookupString();
-      LookupImpl lookup = (LookupImpl) event.getLookup();
+      LookupImpl lookup = (LookupImpl)event.getLookup();
+      assert lookup != null;
       int prefixLength = lookup.getPrefixLength(event.getItem());
 
       if (isDartLookupEvent(event)) {
@@ -443,27 +445,27 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     }
 
     @Override
-    public void currentItemChanged(@NotNull LookupEvent event) {}
+    public void currentItemChanged(@NotNull LookupEvent event) {
+    }
 
     private static boolean isDartLookupEvent(@NotNull LookupEvent event) {
-      LookupImpl lookup = (LookupImpl) event.getLookup();
-      return lookup != null && lookup.getPsiFile() != null
-             && lookup.getPsiFile().getVirtualFile() != null
-             && FileUtils.isDartFile(lookup.getPsiFile().getVirtualFile());
+      LookupImpl lookup = (LookupImpl)event.getLookup();
+      return lookup != null &&
+             lookup.getPsiFile() != null &&
+             lookup.getPsiFile().getVirtualFile() != null &&
+             FileUtils.isDartFile(Objects.requireNonNull(lookup.getPsiFile().getVirtualFile()));
     }
   }
 
   private class QuickFixListener implements DartQuickFixListener {
     @Override
     public void beforeQuickFixInvoked(@NotNull DartQuickFix intention, @NotNull Editor editor, @NotNull PsiFile file) {
-      String path = file.getVirtualFile().getPath();
+      String path = Objects.requireNonNull(file.getVirtualFile()).getPath();
       int lineNumber = editor.getCaretModel().getLogicalPosition().line + 1;
-      List<String> errorsOnLine = pathToErrors.containsKey(path)
-        ? pathToErrors.get(path).stream()
-          .filter(error -> error.getLocation().getStartLine() == lineNumber)
-          .map(error -> error.getCode())
-          .collect(Collectors.toList())
-        : ImmutableList.of();
+      @SuppressWarnings("ConstantConditions")
+      List<String> errorsOnLine =
+        pathToErrors.containsKey(path) ? pathToErrors.get(path).stream().filter(error -> error.getLocation().getStartLine() == lineNumber)
+          .map(AnalysisError::getCode).collect(Collectors.toList()) : ImmutableList.of();
       FlutterInitializer.getAnalytics().sendEventMetric(QUICK_FIX, intention.getText(), errorsOnLine.size());
     }
   }
@@ -472,30 +474,31 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     @Override
     public void onRequest(String jsonString) {
       JsonObject request = new Gson().fromJson(jsonString, JsonObject.class);
-      RequestDetails details = new RequestDetails(request.get("method").getAsString(), Instant.now());
-      String id = request.get("id").getAsString();
+      @SuppressWarnings("ConstantConditions") RequestDetails details =
+        new RequestDetails(request.get("method").getAsString(), Instant.now());
+      String id = Objects.requireNonNull(request.get("id")).getAsString();
       requestToDetails.put(id, details);
     }
   }
 
+  @SuppressWarnings("LocalCanBeFinal")
   class FlutterResponseListener implements ResponseListener {
     @Override
     public void onResponse(String jsonString) {
       JsonObject response = new Gson().fromJson(jsonString, JsonObject.class);
       if (response == null) return;
       if (safelyGetString(response, "event").equals("server.log")) {
-        JsonObject serverLogEntry = response.getAsJsonObject("params").getAsJsonObject("entry");
+        JsonObject serverLogEntry = Objects.requireNonNull(response.getAsJsonObject("params")).getAsJsonObject("entry");
         if (serverLogEntry != null) {
           String sdkVersionValue = safelyGetString(serverLogEntry, LOG_ENTRY_SDK_VERSION);
           ImmutableMap<String, String> map;
 
-          String logEntry = String.format("%s|%s|%s|%s|%s|%s",
-                                          LOG_ENTRY_TIME,
-                                          Integer.toString(serverLogEntry.get(LOG_ENTRY_TIME).getAsInt()),
-                                          LOG_ENTRY_KIND,
-                                          serverLogEntry.get(LOG_ENTRY_KIND).getAsString(),
-                                          LOG_ENTRY_DATA,
-                                          serverLogEntry.get(LOG_ENTRY_DATA).getAsString());
+          @SuppressWarnings("ConstantConditions")
+          String logEntry =
+            String.format("%s|%s|%s|%s|%s|%s", LOG_ENTRY_TIME, serverLogEntry.get(LOG_ENTRY_TIME).getAsInt(),
+                          LOG_ENTRY_KIND, serverLogEntry.get(LOG_ENTRY_KIND).getAsString(), LOG_ENTRY_DATA,
+                          serverLogEntry.get(LOG_ENTRY_DATA).getAsString());
+          assert logEntry != null;
           // Log the "sdkVersion" only if it was provided in the event
           if (StringUtil.isEmpty(sdkVersionValue)) {
             FlutterInitializer.getAnalytics().sendEvent(ANALYSIS_SERVER_LOG, logEntry);
@@ -508,11 +511,12 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       if (response.get("id") == null) {
         return;
       }
-      String id = response.get("id").getAsString();
+      String id = Objects.requireNonNull(response.get("id")).getAsString();
       RequestDetails details = requestToDetails.get(id);
       if (details != null) {
-        FlutterInitializer.getAnalytics().sendTiming(ROUND_TRIP_TIME, details.method(),
-          Duration.between(details.startTime(), Instant.now()).toMillis());
+        FlutterInitializer.getAnalytics()
+          .sendTiming(ROUND_TRIP_TIME, details.method(),
+                      Objects.requireNonNull(Duration.between(details.startTime(), Instant.now())).toMillis());
       }
       requestToDetails.remove(id);
     }

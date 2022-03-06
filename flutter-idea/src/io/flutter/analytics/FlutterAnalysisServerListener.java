@@ -105,9 +105,9 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     this.pathToOutlineTimestamps = new HashMap<>();
     this.requestToDetails = new HashMap<>();
     //noinspection ConstantConditions
-    if (!ApplicationManager.getApplication().isUnitTestMode()) {
+    //if (!ApplicationManager.getApplication().isUnitTestMode()) {
       LookupManager.getInstance(project).addPropertyChangeListener(this::onPropertyChange);
-    }
+    //}
 
     this.fileEditorManagerListener = new FileEditorManagerListener() {
       @Override

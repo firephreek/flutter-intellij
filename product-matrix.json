@@ -67,10 +67,10 @@
       "version": "2022.1",
       "isUnitTestTarget": "true",
       "ideaProduct": "ideaIC",
-      "ideaVersion": "221.4165.146",
+      "ideaVersion": "221.4906.8",
       "baseVersion": "LATEST-EAP-SNAPSHOT",
       "dartPluginVersion": "221.4906.8",
-      "sinceBuild": "221.4165.146",
+      "sinceBuild": "221.4906.8",
       "untilBuild": "221.*"
     }
   ]

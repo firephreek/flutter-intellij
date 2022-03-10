@@ -51,6 +51,10 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   static final String ACCEPTED_COMPLETION = "acceptedCompletion";
   static final String REJECTED_COMPLETION = "rejectedCompletion";
   static final String E2E_IJ_COMPLETION_TIME = "e2eIJCompletionTime";
+  static final String ERRORS = "errors";
+  static final String WARNINGS = "warnings";
+  static final String HINTS = "hints";
+  static final String LINTS = "lints";
   static final String DURATION = "duration";
   static final String FAILURE = "failure";
   static final String SUCCESS = "success";
@@ -58,11 +62,6 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   static final String ERROR_TYPE_SERVER = "@";
 
   static final String DAS_STATUS_EVENT_TYPE = "analysisServerStatus";
-  static final String IS_BLAZE_SYNC_SUCCESSFUL = "isBlazeSyncSuccessful";
-  static final String IS_DART_ACTIVE_LANG = "isDartActiveLang";
-  static final String IS_DART_ONLY_ACTIVE_LANG = "isDartOnlyActiveLang";
-  static final String IS_DART_WORKSPACE_TYPE = "isDartWorkspaceType";
-  static final String IS_DERIVE_TARGETS_ENABLED = "isDeriveTargetsEnabled";
   static final String[] ERROR_TYPES = new String[]{
     AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR,
     AnalysisErrorType.COMPILE_TIME_ERROR,
@@ -104,10 +103,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     this.pathToHighlightTimestamps = new HashMap<>();
     this.pathToOutlineTimestamps = new HashMap<>();
     this.requestToDetails = new HashMap<>();
-    //noinspection ConstantConditions
-    //if (!ApplicationManager.getApplication().isUnitTestMode()) {
-      LookupManager.getInstance(project).addPropertyChangeListener(this::onPropertyChange);
-    //}
+    LookupManager.getInstance(project).addPropertyChangeListener(this::onPropertyChange);
 
     this.fileEditorManagerListener = new FileEditorManagerListener() {
       @Override
@@ -350,15 +346,15 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       errorCount += extractCount(errorCounts, AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR);
       errorCount += extractCount(errorCounts, AnalysisErrorType.COMPILE_TIME_ERROR);
       errorCount += extractCount(errorCounts, AnalysisErrorType.SYNTACTIC_ERROR);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "ERRORS", errorCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, ERRORS, errorCount);
       int warningCount = 0;
       warningCount += extractCount(errorCounts, AnalysisErrorType.STATIC_TYPE_WARNING);
       warningCount += extractCount(errorCounts, AnalysisErrorType.STATIC_WARNING);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "WARNINGS", warningCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, WARNINGS, warningCount);
       int hintCount = extractCount(errorCounts, AnalysisErrorType.HINT);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "HINTS", hintCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, HINTS, hintCount);
       int lintCount = extractCount(errorCounts, AnalysisErrorType.LINT);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, "LINTS", lintCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, LINTS, lintCount); // test: serverStatus()
     }
   }
 
@@ -440,7 +436,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       int prefixLength = lookup.getPrefixLength(event.getItem());
 
       if (isDartLookupEvent(event)) {
-        logCompletion(selection, prefixLength, ACCEPTED_COMPLETION);
+        logCompletion(selection, prefixLength, ACCEPTED_COMPLETION); // test: acceptedCompletion()
       }
     }
 
@@ -466,7 +462,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       List<String> errorsOnLine =
         pathToErrors.containsKey(path) ? pathToErrors.get(path).stream().filter(error -> error.getLocation().getStartLine() == lineNumber)
           .map(AnalysisError::getCode).collect(Collectors.toList()) : ImmutableList.of();
-      FlutterInitializer.getAnalytics().sendEventMetric(QUICK_FIX, intention.getText(), errorsOnLine.size());
+      FlutterInitializer.getAnalytics().sendEventMetric(QUICK_FIX, intention.getText(), errorsOnLine.size()); // test: quickFix()
     }
   }
 
@@ -501,9 +497,9 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
           assert logEntry != null;
           // Log the "sdkVersion" only if it was provided in the event
           if (StringUtil.isEmpty(sdkVersionValue)) {
-            FlutterInitializer.getAnalytics().sendEvent(ANALYSIS_SERVER_LOG, logEntry);
+            FlutterInitializer.getAnalytics().sendEvent(ANALYSIS_SERVER_LOG, logEntry); // test: dasListenerLogging()
           }
-          else {
+          else { // test: dasListenerLoggingWithSdk()
             FlutterInitializer.getAnalytics().sendEventWithSdk(ANALYSIS_SERVER_LOG, logEntry, sdkVersionValue);
           }
         }
@@ -511,11 +507,12 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       if (response.get("id") == null) {
         return;
       }
-      String id = Objects.requireNonNull(response.get("id")).getAsString();
+      //noinspection ConstantConditions
+      String id = response.get("id").getAsString();
       RequestDetails details = requestToDetails.get(id);
       if (details != null) {
         FlutterInitializer.getAnalytics()
-          .sendTiming(ROUND_TRIP_TIME, details.method(),
+          .sendTiming(ROUND_TRIP_TIME, details.method(), // test: dasListenerTiming()
                       Objects.requireNonNull(Duration.between(details.startTime(), Instant.now())).toMillis());
       }
       requestToDetails.remove(id);

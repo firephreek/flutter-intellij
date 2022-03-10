@@ -178,6 +178,8 @@ public class Analytics {
       if (flutterVersion.getVersionText() != null) {
         args.put("cd2", flutterVersion.getVersionText());
       }
+    } else if (sdkVersion != null) {
+      args.put("cd2", sdkVersion);
     }
 
     // Record whether this client uses bazel.

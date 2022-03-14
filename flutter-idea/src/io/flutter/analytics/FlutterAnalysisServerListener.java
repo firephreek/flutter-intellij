@@ -288,11 +288,11 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     assert requestError != null;
     String code = requestError.getCode();
     if (code == null) {
-      code = requestError.getMessage();
+      code = requestError.getMessage(); // test: requestErrorNoCode()
     }
     String stack = requestError.getStackTrace();
     String exception = composeException(ERROR_TYPE_REQUEST, code, stack);
-    FlutterInitializer.getAnalytics().sendException(exception, false);
+    FlutterInitializer.getAnalytics().sendException(exception, false); // test: requestError()
   }
 
   /**
@@ -330,7 +330,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   @Override
   public void serverError(boolean isFatal, String message, String stackTraceString) {
     String exception = composeException(ERROR_TYPE_SERVER, message, stackTraceString);
-    FlutterInitializer.getAnalytics().sendException(exception, isFatal);
+    FlutterInitializer.getAnalytics().sendException(exception, isFatal); // test: serverError()
   }
 
   @Override
@@ -346,13 +346,13 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
       errorCount += extractCount(errorCounts, AnalysisErrorType.CHECKED_MODE_COMPILE_TIME_ERROR);
       errorCount += extractCount(errorCounts, AnalysisErrorType.COMPILE_TIME_ERROR);
       errorCount += extractCount(errorCounts, AnalysisErrorType.SYNTACTIC_ERROR);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, ERRORS, errorCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, ERRORS, errorCount); // test: serverStatus()
       int warningCount = 0;
       warningCount += extractCount(errorCounts, AnalysisErrorType.STATIC_TYPE_WARNING);
       warningCount += extractCount(errorCounts, AnalysisErrorType.STATIC_WARNING);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, WARNINGS, warningCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, WARNINGS, warningCount); // test: serverStatus()
       int hintCount = extractCount(errorCounts, AnalysisErrorType.HINT);
-      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, HINTS, hintCount);
+      FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, HINTS, hintCount); // test: serverStatus()
       int lintCount = extractCount(errorCounts, AnalysisErrorType.LINT);
       FlutterInitializer.getAnalytics().sendEventMetric(DAS_STATUS_EVENT_TYPE, LINTS, lintCount); // test: serverStatus()
     }
@@ -369,20 +369,20 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   }
 
   private static void logCompletion(@NotNull String selection, int prefixLength, @NotNull String eventType) {
-    FlutterInitializer.getAnalytics().sendEventMetric(eventType, selection, prefixLength);
+    FlutterInitializer.getAnalytics().sendEventMetric(eventType, selection, prefixLength); // test: acceptedCompletion(), lookupCanceled()
   }
 
   void logE2ECompletionSuccessMS(long e2eCompletionMS) {
-    FlutterInitializer.getAnalytics().sendTiming(E2E_IJ_COMPLETION_TIME, SUCCESS, e2eCompletionMS);
+    FlutterInitializer.getAnalytics().sendTiming(E2E_IJ_COMPLETION_TIME, SUCCESS, e2eCompletionMS); // test: logE2ECompletionSuccessMS()
   }
 
   void logE2ECompletionErrorMS(long e2eCompletionMS) {
-    FlutterInitializer.getAnalytics().sendTiming(E2E_IJ_COMPLETION_TIME, FAILURE, e2eCompletionMS);
+    FlutterInitializer.getAnalytics().sendTiming(E2E_IJ_COMPLETION_TIME, FAILURE, e2eCompletionMS); // test: logE2ECompletionErrorMS()
   }
 
   private void logAnalysisError(@Nullable AnalysisError error) {
     if (error != null && (computedErrorCounter++ % COMPUTED_ERROR_SAMPLE_RATE) == 0) {
-      FlutterInitializer.getAnalytics().sendEvent(
+      FlutterInitializer.getAnalytics().sendEvent( // test: computedErrors()
         COMPUTED_ERROR,
         Objects.requireNonNull(error.getCode()), "", Long.toString(Objects.requireNonNull(Instant.now()).toEpochMilli()));
     }
@@ -399,7 +399,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
   }
 
   private void logFileAnalysisTime(@NotNull String kind, String path, long analysisTime) {
-    FlutterInitializer.getAnalytics().sendEvent(kind, DURATION, "", Long.toString(analysisTime));
+    FlutterInitializer.getAnalytics().sendEvent(kind, DURATION, "", Long.toString(analysisTime)); // test: computedErrors()
   }
 
   /**
@@ -421,7 +421,7 @@ public final class FlutterAnalysisServerListener extends AnalysisServerListenerA
     @Override
     public void lookupCanceled(@NotNull LookupEvent event) {
       if (event.isCanceledExplicitly() && isDartLookupEvent(event)) {
-        logCompletion(UNKNOWN_LOOKUP_STRING, -1, REJECTED_COMPLETION);
+        logCompletion(UNKNOWN_LOOKUP_STRING, -1, REJECTED_COMPLETION); // test: lookupCanceled()
       }
     }
 

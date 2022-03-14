@@ -19,8 +19,10 @@ import com.jetbrains.lang.dart.fixes.DartQuickFixSet;
 import io.flutter.FlutterInitializer;
 import io.flutter.testing.CodeInsightProjectFixture;
 import io.flutter.testing.Testing;
+import org.dartlang.analysis.server.protocol.AnalysisError;
 import org.dartlang.analysis.server.protocol.AnalysisStatus;
 import org.dartlang.analysis.server.protocol.PubStatus;
+import org.dartlang.analysis.server.protocol.RequestError;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.junit.After;
@@ -28,11 +30,12 @@ import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static io.flutter.analytics.FlutterAnalysisServerListener.*;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.*;
 
 @SuppressWarnings({"LocalCanBeFinal"})
 public class FlutterAnalysisServerListenerTest {
@@ -75,6 +78,39 @@ public class FlutterAnalysisServerListenerTest {
   }
 
   @Test
+  public void requestError() throws Exception {
+    RequestError error = new RequestError("101", "error", "trace");
+    fasl.requestError(error);
+    assertEquals(1, transport.sentValues.size());
+    Map<String, String> map = transport.sentValues.get(0);
+    assertNotNull(map.get("exd"));
+    assertTrue(map.get("exd").endsWith("trace"));
+    assertTrue(map.get("exd").startsWith("R 101"));
+  }
+
+  @Test
+  public void requestErrorNoCode() throws Exception {
+    RequestError error = new RequestError(null, "error", "trace");
+    fasl.requestError(error);
+    assertEquals(1, transport.sentValues.size());
+    Map<String, String> map = transport.sentValues.get(0);
+    assertNotNull(map.get("exd"));
+    assertTrue(map.get("exd").endsWith("trace"));
+    assertTrue(map.get("exd").startsWith("R error"));
+  }
+
+  @Test
+  public void serverError() throws Exception {
+    fasl.serverError(true, "message", "trace");
+    assertEquals(1, transport.sentValues.size());
+    Map<String, String> map = transport.sentValues.get(0);
+    assertNotNull(map.get("exd"));
+    assertEquals("1", map.get("'exf'")); // extra quotes since 2016
+    assertTrue(map.get("exd").endsWith("trace"));
+    assertTrue(map.get("exd").contains("message"));
+  }
+
+  @Test
   public void acceptedCompletion() throws Exception {
     Editor editor = editor();
     Testing.runOnDispatchThread(() -> {
@@ -89,9 +125,45 @@ public class FlutterAnalysisServerListenerTest {
     });
     assertEquals(1, transport.sentValues.size());
     Map<String, String> map = transport.sentValues.get(0);
-    assertEquals("acceptedCompletion", map.get("ec"));
+    assertEquals(ACCEPTED_COMPLETION, map.get("ec"));
     assertEquals("gr", map.get("ea"));
     assertEquals("0", map.get("ev"));
+  }
+
+  @Test
+  public void lookupCanceled() throws Exception {
+    Editor editor = editor();
+    Testing.runOnDispatchThread(() -> {
+      editor.getSelectionModel().setSelection(18, 18);
+      fasl.lookupSelectionHandler = new FlutterAnalysisServerListener.LookupSelectionHandler();
+      LookupImpl lookup = new LookupImpl(project, editor, new LookupArranger.DefaultArranger());
+      LookupItem item = new LookupItem(LookupItem.TYPE_TEXT_ATTR, "gr");
+      lookup.addItem(item, PrefixMatcher.ALWAYS_TRUE);
+      lookup.addLookupListener(fasl.lookupSelectionHandler);
+      LookupEvent lookupEvent = new LookupEvent(lookup, true);
+      fasl.lookupSelectionHandler.lookupCanceled(lookupEvent);
+      assertEquals(1, transport.sentValues.size());
+      Map<String, String> map = transport.sentValues.get(0);
+      assertEquals(REJECTED_COMPLETION, map.get("ec"));
+      assertEquals(UNKNOWN_LOOKUP_STRING, map.get("ea"));
+    });
+  }
+
+  @Test
+  public void computedErrors() throws Exception {
+    editor(); // Ensure file is open.
+    String path = mainFile.getVirtualFile().getPath();
+    List<AnalysisError> list = new ArrayList<>();
+    list.add(new AnalysisError("ERROR", "", null, "", "", "101", "", null, false));
+    fasl.computedErrors(path, list);
+    assertEquals(2, transport.sentValues.size());
+    Map<String, String> map = transport.sentValues.get(0);
+    assertEquals(COMPUTED_ERROR, map.get("ec"));
+    assertEquals("101", map.get("ea"));
+    map = transport.sentValues.get(1);
+    assertNotNull(map.get("ev"));
+    assertEquals(DURATION, map.get("ea"));
+    assertEquals(INITIAL_COMPUTE_ERRORS_TIME, map.get("ec"));
   }
 
   @SuppressWarnings("ConstantConditions")
@@ -156,6 +228,34 @@ public class FlutterAnalysisServerListenerTest {
     assertEquals(ANALYSIS_SERVER_LOG, map.get("ec"));
     assertEquals("time|1|kind||data|", map.get("ea"));
     assertEquals("1", map.get("cd2"));
+  }
+
+  @Test
+  public void logE2ECompletionSuccessMS() throws Exception {
+    DartCompletionTimerListener dctl = new DartCompletionTimerListener();
+    dctl.dasListener = fasl;
+    dctl.dartCompletionStart();
+    dctl.dartCompletionEnd();
+    assertEquals(1, transport.sentValues.size());
+    Map<String, String> map = transport.sentValues.get(0);
+    assertEquals(E2E_IJ_COMPLETION_TIME, map.get("utc"));
+    assertEquals(SUCCESS, map.get("utv"));
+    assertEquals("timing", map.get("t"));
+    assertNotNull(map.get("utt")); // Not checking a computed value, duration.
+  }
+
+  @Test
+  public void logE2ECompletionErrorMS() throws Exception {
+    DartCompletionTimerListener dctl = new DartCompletionTimerListener();
+    dctl.dasListener = fasl;
+    dctl.dartCompletionStart();
+    dctl.dartCompletionError("101", "message", "trace");
+    assertEquals(1, transport.sentValues.size());
+    Map<String, String> map = transport.sentValues.get(0);
+    assertEquals(E2E_IJ_COMPLETION_TIME, map.get("utc"));
+    assertEquals(FAILURE, map.get("utv"));
+    assertEquals("timing", map.get("t"));
+    assertNotNull(map.get("utt")); // Not checking a computed value, duration.
   }
 
   @NotNull

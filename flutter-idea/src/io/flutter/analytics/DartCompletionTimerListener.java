@@ -5,6 +5,7 @@ import com.intellij.openapi.project.ProjectManager;
 
 import com.jetbrains.lang.dart.ide.completion.DartCompletionTimerExtension;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.time.Instant;
 
@@ -13,8 +14,8 @@ import java.time.Instant;
  * measure the total time to present a code completion to the user.
  */
 public class DartCompletionTimerListener extends DartCompletionTimerExtension {
-  FlutterAnalysisServerListener dasListener;
-  Long startTimeMS;
+  @Nullable FlutterAnalysisServerListener dasListener;
+  @Nullable Long startTimeMS;
 
   @Override
   public void dartCompletionStart() {
@@ -29,7 +30,8 @@ public class DartCompletionTimerListener extends DartCompletionTimerExtension {
   public void dartCompletionEnd() {
     if (dasListener != null && startTimeMS != null) {
       long durationTimeMS = Instant.now().toEpochMilli() - startTimeMS;
-      dasListener.logE2ECompletionSuccessMS(durationTimeMS);
+      dasListener.logE2ECompletionSuccessMS(durationTimeMS); // test: logE2ECompletionSuccessMS()
+      startTimeMS = null;
     }
   }
 
@@ -42,7 +44,7 @@ public class DartCompletionTimerListener extends DartCompletionTimerExtension {
     @NotNull String code, @NotNull String message, @NotNull String stackTrace) {
     if (dasListener != null && startTimeMS != null) {
       long durationTimeMS = Instant.now().toEpochMilli() - startTimeMS;
-      dasListener.logE2ECompletionErrorMS(durationTimeMS);
+      dasListener.logE2ECompletionErrorMS(durationTimeMS); // test: logE2ECompletionErrorMS()
       startTimeMS = null;
     }
   }
